@@ -79,6 +79,7 @@ local function Get_Names()
     return Planets[game.PlaceId] or false
 end
 
+-- Логика получения промпта
 local function GetLander()
     if _G.lander and _G.PlanetInstanceNames then return _G.lander end
     for _, l in pairs(workspace:GetChildren()) do
@@ -116,6 +117,7 @@ local function GetTool()
     return plr.Character and plr.Character:FindFirstChild("Pick Up")
 end
 
+-- Основной цикл сбора
 function CollectSamples()
     local lander = GetLander()
     if not lander then return end
@@ -130,14 +132,14 @@ function CollectSamples()
             Tool.PickUp:FireServer()
         end
         
-        -- Максимально быстрая проверка (каждый кадр)
+        -- Ждем пока RockAdded сработает и установит Collected = true
         local timeout = 0
-        while not Collected and timeout < 200 do
+        while not Collected and timeout < 10 do
             timeout = timeout + 1
-            task.wait()
+            task.wait(0.2)
         end
         
-        task.wait() 
+        task.wait(0.3) -- Пауза перед следующим подбором
     until not AmountStored or AmountStored.Value >= Capacity.Value 
     
     MainData.CameFromPlanet = true
@@ -145,10 +147,11 @@ function CollectSamples()
     game:GetService("ReplicatedStorage")[_G.PlanetInstanceNames[5]]:FireServer(plr.Name)
 end
 
+-- Телепорт
 local function QuickTpToPrompt(Prompt)
     task.spawn(function() 
         local lander = GetLander()
-        while task.wait() do -- ТП каждый кадр
+        while task.wait(0.1) do
             local Char = plr.Character
             if Char and Char:FindFirstChild("HumanoidRootPart") and Prompt.Parent then
                 Char.HumanoidRootPart.CFrame = Prompt.Parent.CFrame
@@ -159,29 +162,34 @@ local function QuickTpToPrompt(Prompt)
     end)
 end
 
+-- Ивент на добавление камня в инвентарь
 local function RockAdded(child)
     local names = _G.PlanetInstanceNames
     if not names then return end
     
     if child.Name == (names[2] .. names[3]) then
+        task.wait(0.1)
         local Char = plr.Character
         local hum = Char and Char:FindFirstChild("Humanoid")
         
         if hum then
+            -- Берем в руки
             hum:EquipTool(child)
-            task.wait(0.12) -- Ультра-минимальное время для регистрации сервером
+            task.wait(0.5) -- Ждем анимации взятия
             
+            -- Выбираем куда сдавать
             local Prompt = (GetLander().Name == "Aresonius") and GetPrompt2() or GetPrompt()
             
             if Prompt then
                 fireproximityprompt(Prompt)
-                task.wait() 
-                Collected = true 
+                task.wait(0.3)
+                Collected = true -- Сигналим циклу CollectSamples, что можно подбирать следующий
             end
         end
     end
 end
 
+-- Запуск
 local lander = GetLander()
 if lander then
     if not lander.Landed.Value then lander.Landed:GetPropertyChangedSignal("Value"):Wait() end
@@ -191,6 +199,6 @@ if lander then
     
     table.insert(_G.Connections, plr.Backpack.ChildAdded:Connect(RockAdded))
     
-    SendNotif('Autofarming', 'Ultra Speed Active', 2)
+    SendNotif('Autofarming', 'Started', 5)
     CollectSamples()
 end
