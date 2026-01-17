@@ -31,7 +31,8 @@ _G.Connections = {}
 local Collected = false
 local FileName = "SS.JSON"
 local plr = game.Players.LocalPlayer
-local http = game:GetService("HttpService")
+local Char = plr.Character or plr.CharacterAdded:Wait()
+local hum = Char:WaitForChild("Humanoid")
 
 local DefaultData = {
     AutoFarm = false,
@@ -40,6 +41,7 @@ local DefaultData = {
 local MainData
 local AutoFarm
 local CameFromPlanet
+local http = game:GetService("HttpService")
 
 if game.GameId ~= 1722988797 then
     print("this isnt space sailors")
@@ -47,14 +49,20 @@ if game.GameId ~= 1722988797 then
 end
 
 if not isfile(FileName) then
-    writefile(FileName, http:JSONEncode(DefaultData))
+    local data = http:JSONEncode(DefaultData)
+    writefile(FileName, data)
+    MainData = http:JSONDecode(readfile(FileName))
+else
+    MainData = http:JSONDecode(readfile(FileName))
+    AutoFarm = MainData.AutoFarm
+    CameFromPlanet = MainData.CameFromPlanet
 end
-MainData = http:JSONDecode(readfile(FileName))
-AutoFarm = MainData.AutoFarm
-CameFromPlanet = MainData.CameFromPlanet
 
 function SaveData()
-    writefile(FileName, http:JSONEncode(MainData))
+    local data = http:JSONEncode(MainData)
+    -- delfile убран для предотвращения краша при записи
+    writefile(FileName, data)
+    MainData = http:JSONDecode(readfile(FileName))
 end
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -75,130 +83,248 @@ local Planets = {
     }
 } 
 
+local function GetCeresRemote()
+    local b = "ToMarsRemote" 
+    if IsInGateway() then 
+        b = "ToCeresRemote" 
+    elseif game.PlaceId == 6458953928 then 
+        b = "ToMarsRemote" 
+    end
+    return b
+end
+
+local SpecialLanders = {
+    [6458953928] = {"Aresonius", "ToMarsRemote"},
+    [6686215787] = {"Aresonius", GetCeresRemote()},
+    [5515926734] = {"Aresonius", "ToMoonRemote"}
+}
+
 local function Get_Names()
     return Planets[game.PlaceId] or false
 end
 
--- Логика получения промпта
+local function GetSpecialLanderName()
+    for id, name in pairs(SpecialLanders) do
+        if game.PlaceId == id then
+            return name
+        end
+    end
+end
+
+local Cashout = game:GetService("ReplicatedStorage"):FindFirstChild("Cashout")
+if Cashout then 
+    Cashout:FireServer()
+    SendNotif('Cashout Success', 'Cashed out ignore the green button', 3) 
+end
+
+if AutoFarm==false then
+    print("wont autofarm")
+    return false
+end
+
+if game.PlaceId == 5000143962 then 
+    MainData.CameFromPlanet = false
+    SaveData()
+    TpToGateway()
+    return
+end
+
+local function GetSpecialLanderByRemote(RemoteName)
+    for _, Name in pairs(SpecialLanders) do
+        if Name[2] == RemoteName then
+            return Name
+        end
+    end
+end
+
+local function IsInOrbiter()
+    local OrbiterIds = {
+        6458953928,
+        6686215787 
+    }
+    for _, id in pairs(OrbiterIds) do
+        if game.PlaceId == id then
+            return true
+        end
+    end
+    return false
+end
+
+if IsInOrbiter() and CameFromPlanet then
+    MainData.CameFromPlanet = false
+    SaveData()
+    TpToGateway()
+    return
+else
+    MainData.CameFromPlanet = false
+    SaveData()
+end
+
+task.wait(3)
+
+if not Get_Names() then
+    if IsInOrbiter() == false and IsInGateway() == true then
+        local t = {}
+        for _, Table in pairs(SpecialLanders) do
+           table.insert(t, Table[2])
+        end
+        local RemoteName = t[math.random(1, #t)]
+        local CustomLander = GetSpecialLanderByRemote(tostring(RemoteName))[1]
+        game.ReplicatedStorage[RemoteName]:FireServer(CustomLander)
+    else
+        local spec = GetSpecialLanderName()
+        if spec then
+            game.ReplicatedStorage[spec[2]]:FireServer(spec[1])
+        end
+    end
+    return
+end 
+
 local function GetLander()
-    if _G.lander and _G.PlanetInstanceNames then return _G.lander end
+    if _G.lander and _G.PlanetInstanceNames then 
+        return _G.lander 
+    end
+
     for _, l in pairs(workspace:GetChildren()) do
-        if l:IsA("Model") and l:FindFirstChild("LanderOwner") and l.LanderOwner.Value == plr.Name then
+        if l:IsA("Model") then
             local names = Get_Names()
-            for _, opt in pairs(names) do
-                if l.Name == opt[4] then
-                    _G.lander = l
-                    _G.PlanetInstanceNames = opt
-                    return l
+            for _, LanderOption in pairs(names) do
+                if l.Name == LanderOption[4] and l:FindFirstChild("LanderOwner") and l.LanderOwner.Value == plr.Name then
+                    _G.lander = l 
+                    _G.PlanetInstanceNames = LanderOption
+                    return _G.lander
                 end
             end
         end
     end
 end
 
+local function GetTool()
+    for _, v in pairs(plr.Backpack:GetChildren()) do
+        if v.Name:sub(1, 7) == "Pick Up" then
+            return v
+        end 
+    end
+end
+
+local function GetNames() 
+    return _G.PlanetInstanceNames
+end
+
 local function GetPrompt() 
-    local l = GetLander()
-    if not l then return nil end
-    return l[_G.PlanetInstanceNames[1]].Deposit.ProximityPrompt 
+    local lander = GetLander()
+    return lander and lander[GetNames()[1]].Deposit.ProximityPrompt 
 end
 
 local function GetPrompt2()
-    local l = GetLander()
-    if l and l.Name == "Aresonius" then
-        return l[_G.PlanetInstanceNames[1]].Deposit2.ProximityPrompt 
-    end
-    return nil
-end
-
-local function GetTool()
-    for _, v in pairs(plr.Backpack:GetChildren()) do
-        if v.Name:sub(1, 7) == "Pick Up" then return v end 
-    end
-    return plr.Character and plr.Character:FindFirstChild("Pick Up")
-end
-
--- Основной цикл сбора
-function CollectSamples()
+    local val=false
     local lander = GetLander()
-    if not lander then return end
+    if lander and lander.Name == "Aresonius" then
+        val=lander[GetNames()[1]].Deposit2.ProximityPrompt 
+    end
+    return val
+end
+
+function CollectSamples()
+    local Prompt = GetPrompt()
+    if not Prompt then return end
     
-    local AmountStored = lander.ResourceValues.Storage
-    local Capacity = lander.ResourceValues.Capacity
+    local Tool = GetTool()
+    if not Tool then return end
+    
+    local PickUp = Tool.PickUp
+    local AmountStored = Prompt.Parent.Parent.Parent.ResourceValues.Storage
+    local Capacity = AmountStored.Parent.Capacity
     
     repeat
+        if GetLander().Name == "Aresonius" then
+            local character = plr.Character
+            if character and character:FindFirstChild("Humanoid") then
+                character.Humanoid.Sit = false
+            end
+        end
+        PickUp:FireServer()
+        
+        local timer = 0
+        while task.wait() do
+            timer = timer + 1
+            if Collected or timer > 100 then break end
+        end
+        
+        task.wait()
         Collected = false
-        local Tool = GetTool()
-        if Tool then
-            Tool.PickUp:FireServer()
-        end
-        
-        -- Ждем пока RockAdded сработает и установит Collected = true
-        local timeout = 0
-        while not Collected and timeout < 10 do
-            timeout = timeout + 1
-            task.wait(0.2)
-        end
-        
-        task.wait(0.3) -- Пауза перед следующим подбором
     until not AmountStored or AmountStored.Value >= Capacity.Value 
     
     MainData.CameFromPlanet = true
     SaveData()
-    game:GetService("ReplicatedStorage")[_G.PlanetInstanceNames[5]]:FireServer(plr.Name)
+    game:GetService("ReplicatedStorage")[GetNames()[5]]:FireServer(plr.Name)
 end
 
--- Телепорт
+local Warp
+for _, v in pairs(game.ReplicatedStorage:GetDescendants()) do
+    if v.Name == "WarpLandRemote" then
+        Warp = v.Parent:FindFirstChild(v.Name)
+        break
+    end
+end
+
+if Warp then
+    Warp:FireServer(plr.Name)
+end
+
+SendNotif('Waiting to land', 'autofarm will begin when you land', 5)
+
 local function QuickTpToPrompt(Prompt)
+    local lander = GetLander()
+    if not lander then return end
+    local AmountStored = Prompt.Parent.Parent.Parent.ResourceValues.Storage
+    local Capacity = AmountStored.Parent.Capacity
+    
     task.spawn(function() 
-        local lander = GetLander()
-        while task.wait(0.1) do
-            local Char = plr.Character
-            if Char and Char:FindFirstChild("HumanoidRootPart") and Prompt.Parent then
-                Char.HumanoidRootPart.CFrame = Prompt.Parent.CFrame
-                if Char:FindFirstChild("Humanoid") then Char.Humanoid.Sit = false end
-            end
-            if lander.ResourceValues.Storage.Value >= lander.ResourceValues.Capacity.Value then break end
+        if lander.Name == "Aresonius" then
+            repeat
+                task.wait()
+                local character = plr.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    character.HumanoidRootPart.CFrame = Prompt.Parent.CFrame
+                end
+            until not AmountStored or AmountStored.Value >= Capacity.Value  
         end
     end)
 end
 
--- Ивент на добавление камня в инвентарь
-local function RockAdded(child)
-    local names = _G.PlanetInstanceNames
-    if not names then return end
-    
-    if child.Name == (names[2] .. names[3]) then
-        task.wait(0.1)
-        local Char = plr.Character
-        local hum = Char and Char:FindFirstChild("Humanoid")
-        
-        if hum then
-            -- Берем в руки
-            hum:EquipTool(child)
-            task.wait(0.5) -- Ждем анимации взятия
-            
-            -- Выбираем куда сдавать
-            local Prompt = (GetLander().Name == "Aresonius") and GetPrompt2() or GetPrompt()
-            
-            if Prompt then
-                fireproximityprompt(Prompt)
-                task.wait(0.3)
-                Collected = true -- Сигналим циклу CollectSamples, что можно подбирать следующий
-            end
-        end
+local lander = GetLander()
+if lander and lander:FindFirstChild("Landed") then
+    if not lander.Landed.Value then 
+        lander.Landed:GetPropertyChangedSignal("Value"):Wait()
     end
 end
 
--- Запуск
-local lander = GetLander()
-if lander then
-    if not lander.Landed.Value then lander.Landed:GetPropertyChangedSignal("Value"):Wait() end
+SendNotif('Autofarming', 'started to autofarm', 5)
+
+local p = GetPrompt()
+if p then QuickTpToPrompt(p) end
+
+local function RockAdded(child)
+    local Prompt = GetPrompt()
+    local names = GetNames()
+    if not names or child.Name ~= (names[2] .. names[3]) then return end
     
-    local p = GetPrompt()
-    if p then QuickTpToPrompt(p) end
+    local character = plr.Character
+    if character and character:FindFirstChild("Humanoid") then
+        character.Humanoid:EquipTool(child)
+    end
     
-    table.insert(_G.Connections, plr.Backpack.ChildAdded:Connect(RockAdded))
+    if GetLander().Name == "Aresonius" then
+        Prompt = GetPrompt2()
+    end
     
-    SendNotif('Autofarming', 'Started', 5)
-    CollectSamples()
+    if Prompt then
+        fireproximityprompt(Prompt)
+    end
+    
+    Collected = true 
 end
+
+table.insert(_G.Connections, plr.Backpack.ChildAdded:Connect(RockAdded))
+CollectSamples()
