@@ -54,7 +54,7 @@ AutoFarm = MainData.AutoFarm
 CameFromPlanet = MainData.CameFromPlanet
 
 function SaveData()
-    writefile(FileName, http:JSONEncode(MainData)) -- Убрал delfile, он вызывает ошибки
+    writefile(FileName, http:JSONEncode(MainData))
 end
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -217,14 +217,14 @@ function CollectSamples()
             Tool.PickUp:FireServer()
         end
         
-        -- Фикс краша: таймаут на ожидание подбора (5 секунд)
         local t = 0
         while task.wait(0.1) do
             t = t + 0.1
-            if Collected or t > 5 then break end
+            if Collected or t > 8 then break end -- Чуть увеличил время ожидания
         end
         
         Collected = false
+        task.wait(0.1)
     until not AmountStored or AmountStored.Value >= Capacity.Value 
     
     MainData.CameFromPlanet = true
@@ -232,7 +232,6 @@ function CollectSamples()
     game:GetService("ReplicatedStorage")[_G.PlanetInstanceNames[5]]:FireServer(plr.Name)
 end
 
--- Авто-посадка
 task.spawn(function()
     local Warp = game.ReplicatedStorage:FindFirstChild("WarpLandRemote", true)
     if Warp then Warp:FireServer(plr.Name) end
@@ -244,7 +243,7 @@ local function QuickTpToPrompt(Prompt)
     local Capacity = lander.ResourceValues.Capacity
     
     task.spawn(function() 
-        while task.wait(0.05) do -- Добавил задержку, чтобы не вешать физику
+        while task.wait(0.05) do
             local Char = plr.Character
             if Char and Char:FindFirstChild("HumanoidRootPart") and Prompt.Parent then
                 Char.HumanoidRootPart.CFrame = Prompt.Parent.CFrame
@@ -263,16 +262,23 @@ SendNotif('Autofarming', 'started', 5)
 local p = GetPrompt()
 if p then QuickTpToPrompt(p) end
 
+-- ВОТ ТУТ ИСПРАВЛЕНА ЛОГИКА "E"
 local function RockAdded(child)
     local names = _G.PlanetInstanceNames
     if child.Name == (names[2] .. names[3]) then
+        task.wait(0.1) -- Подождать появления в рюкзаке
         local Char = plr.Character
         local hum = Char and Char:FindFirstChild("Humanoid")
         if hum then
             hum:EquipTool(child)
-            task.wait(0.1)
+            task.wait(0.4) -- КРИТИЧНО: Время для сервера, чтобы понять, что вещь в руках
+            
             local Prompt = (GetLander().Name == "Aresonius") and GetPrompt2() or GetPrompt()
-            fireproximityprompt(Prompt)
+            if Prompt then
+                fireproximityprompt(Prompt)
+            end
+            
+            task.wait(0.2)
             Collected = true
         end
     end
