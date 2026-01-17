@@ -12,16 +12,6 @@ function TpToGateway()
     TeleportService:Teleport(5515926734)
 end
 
-local function GetChildrenOfClass(parent, ClassName)
-    local childrenOfClass = {}
-    for _, child in ipairs(parent:GetChildren()) do
-        if child:IsA(ClassName) then
-            table.insert(childrenOfClass, child)
-        end
-    end
-    return childrenOfClass
-end
-
 _G.Connections = _G.Connections or {}
 for _, Connection in pairs(_G.Connections) do 
     Connection:Disconnect()
@@ -33,43 +23,17 @@ local FileName = "SS.JSON"
 local plr = game.Players.LocalPlayer
 local http = game:GetService("HttpService")
 
-local DefaultData = {
-    AutoFarm = false,
-    CameFromPlanet = false
-}
-local MainData
-local AutoFarm
-local CameFromPlanet
+local MainData = http:JSONDecode(readfile(FileName))
+if not MainData.AutoFarm then return end
 
-if game.GameId ~= 1722988797 then
-    print("this isnt space sailors")
-    return
-end
-
-if not isfile(FileName) then
-    writefile(FileName, http:JSONEncode(DefaultData))
-end
-MainData = http:JSONDecode(readfile(FileName))
-AutoFarm = MainData.AutoFarm
-CameFromPlanet = MainData.CameFromPlanet
-
-function SaveData()
-    writefile(FileName, http:JSONEncode(MainData))
-end
-
-if not game:IsLoaded() then game.Loaded:Wait() end
-
+-- ОСТАВИЛ ТОЛЬКО ЛУНУ И МАРС
 local Planets = {
-    [5534753074] = {
+    [5534753074] = { -- Moon
         {"LanderAscentStage", "Lunar", " Sample", "Lander2", "GatewayRemote"},
         {"LLAMA", "Lunar", " Sample", "LLAMA", "GatewayRemote"},
         {"AftCargoHold", "Lunar", " Sample", "Aresonius", "GatewayRemote"},
     }, 
-    [6669650377] = {
-        {"UpperStage", "Cererian", " Sample", "CeresLander", "DSTRemote"},
-        {"AftCargoHold", "Cererian", " Sample", "Aresonius", "DSTRemote"}
-    },
-    [6119982580] = {
+    [6119982580] = { -- Mars
         {"MidUpperStage", "Iron", " Oxide", "MarsLander", "DSTRemote"},
         {"AftCargoHold", "Iron", " Oxide", "Aresonius", "DSTRemote"}
     }
@@ -81,9 +45,10 @@ end
 
 local function GetLander()
     if _G.lander and _G.PlanetInstanceNames then return _G.lander end
+    local names = Get_Names()
+    if not names then return nil end
     for _, l in pairs(workspace:GetChildren()) do
         if l:IsA("Model") and l:FindFirstChild("LanderOwner") and l.LanderOwner.Value == plr.Name then
-            local names = Get_Names()
             for _, opt in pairs(names) do
                 if l.Name == opt[4] then
                     _G.lander = l
@@ -97,8 +62,7 @@ end
 
 local function GetPrompt() 
     local l = GetLander()
-    if not l then return nil end
-    return l[_G.PlanetInstanceNames[1]].Deposit.ProximityPrompt 
+    return l and l[_G.PlanetInstanceNames[1]].Deposit.ProximityPrompt 
 end
 
 local function GetPrompt2()
@@ -110,45 +74,43 @@ local function GetPrompt2()
 end
 
 local function GetTool()
-    for _, v in pairs(plr.Backpack:GetChildren()) do
-        if v.Name:sub(1, 7) == "Pick Up" then return v end 
-    end
-    return plr.Character and plr.Character:FindFirstChild("Pick Up")
+    local t = plr.Backpack:FindFirstChild("Pick Up") or (plr.Character and plr.Character:FindFirstChild("Pick Up"))
+    return t
 end
 
+-- УЛЬТРА СКОРОСТЬ СБОРА
 function CollectSamples()
     local lander = GetLander()
     if not lander then return end
     
-    local AmountStored = lander.ResourceValues.Storage
-    local Capacity = lander.ResourceValues.Capacity
+    local storage = lander.ResourceValues.Storage
+    local capacity = lander.ResourceValues.Capacity
     
-    repeat
+    while storage.Value < capacity.Value do
         Collected = false
         local Tool = GetTool()
         if Tool then
             Tool.PickUp:FireServer()
         end
         
-        -- Ускоренная проверка флага Collected (каждые 0.05 сек вместо 0.2)
-        local timeout = 0
-        while not Collected and timeout < 100 do
-            timeout = timeout + 1
-            task.wait(0.05)
+        -- Ждем предмет (очень быстро)
+        local t = 0
+        while not Collected and t < 50 do 
+            t = t + 1
+            task.wait() -- Ждем 1 кадр (максимальная скорость)
         end
-        
-        task.wait(0.05) -- Минимальная пауза перед следующим циклом
-    until not AmountStored or AmountStored.Value >= Capacity.Value 
+    end 
     
     MainData.CameFromPlanet = true
-    SaveData()
+    writefile(FileName, http:JSONEncode(MainData))
     game:GetService("ReplicatedStorage")[_G.PlanetInstanceNames[5]]:FireServer(plr.Name)
 end
 
+-- МОМЕНТАЛЬНЫЙ ТЕЛЕПОРТ
 local function QuickTpToPrompt(Prompt)
     task.spawn(function() 
         local lander = GetLander()
-        while task.wait(0.05) do -- Ускоренный ТП для моментального срабатывания E
+        while task.wait() do 
             local Char = plr.Character
             if Char and Char:FindFirstChild("HumanoidRootPart") and Prompt.Parent then
                 Char.HumanoidRootPart.CFrame = Prompt.Parent.CFrame
@@ -159,30 +121,26 @@ local function QuickTpToPrompt(Prompt)
     end)
 end
 
+-- МОМЕНТАЛЬНАЯ СДАЧА
 local function RockAdded(child)
     local names = _G.PlanetInstanceNames
-    if not names then return end
-    
-    if child.Name == (names[2] .. names[3]) then
-        -- Убраны лишние задержки перед экипировкой
+    if names and child.Name == (names[2] .. names[3]) then
         local Char = plr.Character
         local hum = Char and Char:FindFirstChild("Humanoid")
-        
         if hum then
             hum:EquipTool(child)
-            task.wait(0.25) -- Оптимальное время для регистрации предмета в руках
+            task.wait(0.15) -- Минимальный порог для регистрации сервером
             
             local Prompt = (GetLander().Name == "Aresonius") and GetPrompt2() or GetPrompt()
-            
             if Prompt then
                 fireproximityprompt(Prompt)
-                task.wait(0.1) -- Ускоренное подтверждение сдачи
-                Collected = true 
             end
+            Collected = true 
         end
     end
 end
 
+-- ЗАПУСК
 local lander = GetLander()
 if lander then
     if not lander.Landed.Value then lander.Landed:GetPropertyChangedSignal("Value"):Wait() end
@@ -192,6 +150,11 @@ if lander then
     
     table.insert(_G.Connections, plr.Backpack.ChildAdded:Connect(RockAdded))
     
-    SendNotif('Autofarming', 'Started (Fast)', 3)
+    SendNotif('AutoFarm', 'Луна/Марс: Ультра скорость', 2)
     CollectSamples()
+elseif IsInGateway() then
+    task.wait(2)
+    -- Исключаем Цереру из рандома в гейтвее
+    local target = math.random(1,2) == 1 and "ToMoonRemote" or "ToMarsRemote"
+    game.ReplicatedStorage[target]:FireServer("Aresonius")
 end
